@@ -1643,7 +1643,7 @@ dependencies = [
 
 [[package]]
 name = "das-bubblegum-backfill"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anchor-client",
  "anyhow",
@@ -1675,7 +1675,7 @@ dependencies = [
 
 [[package]]
 name = "das-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "backon",
@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "digital_asset_types"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "blockbuster",
@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "lightdas"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -3905,7 +3905,7 @@ dependencies = [
 
 [[package]]
 name = "program_transformers"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blockbuster",
  "bs58 0.4.0",

@@ -2,7 +2,6 @@ use std::pin::Pin;
 
 use std::str::FromStr;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
 use crate::config::database::setup_database_config;
@@ -20,11 +19,10 @@ use dotenv::dotenv;
 
 use futures::prelude::*;
 
-use log::info;
-use mpl_token_metadata::types::Data;
 use processor::transactions_channel_processor::process_transactions_channel;
 use program_transformers::ProgramTransformer;
 
+use rpc::rpc::get_transaction_with_retries;
 use sea_orm::{ConnectionTrait, DatabaseConnection, SqlxPostgresConnector, Statement};
 use solana_client::rpc_config::{RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_client::rpc_response::{Response, RpcLogsResponse};
@@ -35,7 +33,7 @@ use sqlx::{Pool, Postgres};
 
 use tokio::task::{self};
 
-use signal_hook::{consts::signal::SIGHUP, iterator::Signals};
+use tokio::sync::mpsc;
 
 mod config;
 mod processor;
@@ -87,25 +85,33 @@ async fn main() -> Result<()> {
 
     let state_clone = Arc::clone(&state);
 
-    let (signal_tx, mut signal_rx) = tokio::sync::mpsc::channel(1);
+    // let (signal_tx, mut signal_rx) = tokio::sync::mpsc::channel(1);
 
-    // thread to handle SIGHUP
-    thread::spawn(move || {
-        let mut signals = Signals::new(&[SIGHUP]).unwrap();
-        for _ in signals.forever() {
-            let _ = signal_tx.blocking_send(());
-        }
-    });
+    // // thread to handle SIGHUP
+    // thread::spawn(move || {
+    //     let mut signals = Signals::new(&[SIGHUP]).unwrap();
+    //     for _ in signals.forever() {
+    //         let _ = signal_tx.blocking_send(());
+    //     }
+    // });
 
     let mut state = state_clone.lock().unwrap();
     reload_tasks(&mut *state, database_pool.clone(), env_config);
+
+    let (reload_tx, mut reload_rx) = mpsc::channel::<()>(1);
+
+    track_bubblegum(
+        SqlxPostgresConnector::from_sqlx_postgres_pool(database_pool.clone()),
+        reload_tx,
+    )
+    .await;
 
     loop {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(1)) => {
                 // publish metrics
             },
-            _ = signal_rx.recv() => {
+            Some(_) = reload_rx.recv() => {
                 println!("Received SIGHUP, reloading...");
 
                 let trees = get_trees(SqlxPostgresConnector::from_sqlx_postgres_pool(
@@ -139,6 +145,68 @@ async fn handle_stream(
     }
 }
 
+async fn track_bubblegum(
+    database_connection: DatabaseConnection,
+    reload_tx: tokio::sync::mpsc::Sender<()>,
+) {
+    let address = "BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY";
+
+    let mut stream: Pin<Box<dyn Stream<Item = Response<RpcLogsResponse>> + Send>> =
+        get_pubsub_client()
+            .logs_subscribe(
+                RpcTransactionLogsFilter::Mentions(vec![address.to_string()]),
+                RpcTransactionLogsConfig {
+                    commitment: Some(CommitmentConfig::processed()),
+                },
+            )
+            .await
+            .unwrap()
+            .0;
+
+    task::spawn(async move {
+        loop {
+            if let Some(logs) = stream.next().await {
+                let create_ix = logs.value.logs.iter().any(|s| s.contains("CreateTree"));
+
+                if create_ix {
+                    let sig = logs.value.signature;
+
+                    if let Ok(result) = get_transaction_with_retries(&sig).await {
+                        let encoded_tx = result.transaction.transaction.decode().unwrap();
+
+                        let versioned_tx = encoded_tx.message.static_account_keys();
+
+                        let tree_address = versioned_tx[1];
+
+                        // database_connection;
+
+                        let query = format!(
+                            "INSERT INTO LD_MERKLE_TREES 
+                            (ADDRESS, TAG, CAPACITY, MAX_DEPTH, CANOPY_DEPTH, MAX_BUFFER_SIZE)
+                            VALUES ('{}', NULL, NULL, NULL, NULL, NULL);",
+                            tree_address.to_string()
+                        );
+
+                        let _ = &database_connection
+                            .execute(Statement::from_string(
+                                sea_orm::DatabaseBackend::Postgres,
+                                query,
+                            ))
+                            .await;
+
+                        // Trigger reload
+                        if let Err(e) = reload_tx.try_send(()) {
+                            eprintln!("Failed to trigger reload: {}", e);
+                        } else {
+                            println!("Reload triggered");
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 async fn get_trees(database_connection: DatabaseConnection) -> Result<Vec<String>> {
     let res = database_connection
         .query_all(Statement::from_string(
@@ -150,9 +218,9 @@ async fn get_trees(database_connection: DatabaseConnection) -> Result<Vec<String
     let mut tree_addresses: Vec<String> = Vec::new();
     match res {
         Ok(rows) => {
-            if rows.len() == 0 {
-                panic!("Trees to index not found in the database");
-            }
+            // if rows.len() == 0 {
+            //     panic!("Trees to index not found in the database");
+            // }
 
             rows.iter().for_each(|row| {
                 let tree_address: Option<String> = row.try_get("", "address").unwrap();
