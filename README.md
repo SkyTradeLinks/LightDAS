@@ -36,28 +36,33 @@ With LightDAS, you can have your own DAS API without the nft ingester or any oth
 Follow the steps mentioned below
 
 ### Metaplex DAS
-- Clone the [Metaplex Digital Asset RPC API](https://github.com/metaplex-foundation/digital-asset-rpc-infrastructure) repo
+- Clone the [Metaplex Digital Asset RPC API](https://github.com/SkyTradeLinks/digital-asset-rpc-infrastructure) repo
 - You need the `api`, `db`, and `graphite` containers
-- Run `docker compose up`. This'll take some time to build and start the containers. Depending on your machine, you can comment out services in the `docker-compose.yaml` if you want them built
-- After the build is successful, you can stop all other containers except the ones mentioned above
+- Run `docker compose up api db graphite`. This selects the specific containers you need to build.
 - Then configure and run LightDAS
 
 ### LightDAS
 - Clone the repo
-- Add environment variables:
+<!-- - Add environment variables:
   - `RPC_URL`: RPC needs to support websocket functions. We've built using [Quicknode](https://www.quicknode.com/?via=aayush)
   - `WS_URL`: RPC websocket URL
-  - `DATABASE_URL`: Default is `postgres://solana:solana@localhost:5432/solana`, use this unless you changed anything
-- Execute `cargo run`
+  - `DATABASE_URL`: Default is `postgres://solana:solana@localhost:5432/solana`, use this unless you changed anything -->
+- In a seperate terminal, start your validator with 
+
+```
+solana-test-validator -r --bpf-program BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY clones/bubblegum.so --bpf-program cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK clones/spl-account-compression.so --bpf-program noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV clones/noop.so
+```
+
+- Then start your the ingester with `cargo run`
 - This will download and compile the code with all needed dependencies. Grab a coffee this takes a while
-- The first run will fail and complain about no tree addresses being found to index, you need to add tree addresses to index in the database. See the `#trees config` section below
+<!-- - The first run will fail and complain about no tree addresses being found to index, you need to add tree addresses to index in the database. See the `#trees config` section below
 - Once running, you'll see the logs of the tasks being performed
 - Under heavy loads, we have faced RPC rate limits
 - RPC Costs per NFT Mint:
   - Quicknode:
     - `logsSubscribe`: 50 credits
     - `getTransaction`: 50 credits
-- Overall, each NFT mint will cost you 100 RPC credits
+- Overall, each NFT mint will cost you 100 RPC credits -->
 
 ### Trees Config
 1. The address of the trees to be indexed needs to be provided via the database
